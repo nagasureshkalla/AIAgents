@@ -1,0 +1,19 @@
+# Core runtime (Python 3.12+). On Linux, the default PyPI torch wheel ships with CUDA 12 support.
+# For a specific CUDA build see requirements-cuda.txt.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30
+pydantic>=2.7,<3
+pyyaml>=6.0
+httpx>=0.27
+websockets>=12.0
+python-multipart>=0.0.9
+psutil>=5.9
+packaging>=23.0
+
+# AI / ML
+torch>=2.3
+transformers>=4.49,<5
+accelerate>=0.33
+huggingface_hub>=0.24
+safetensors>=0.4
+Pillow>=10.3

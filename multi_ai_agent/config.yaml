@@ -1,0 +1,94 @@
+# Local Multi-AI Agent configuration.
+# Relative paths resolve against this file's directory. Any MAA_* env var / .env entry overrides these values.
+
+server:
+  host: 127.0.0.1          # local-only by default; 0.0.0.0 additionally requires allow_public: true
+  port: 8000
+  allow_public: false
+  log_level: info
+  json_logs: false
+
+# Local Hugging Face models. `hf_id` is only used by scripts/download_models.py; the server loads from `path`.
+# Any extra model folder under models/{text,vision,multimodal}/ is discovered automatically.
+models:
+  base:                     # general-purpose "Base AI": reasoning + final synthesis
+    path: ./models/text/base
+    type: text
+    hf_id: Qwen/Qwen2.5-1.5B-Instruct
+    priority: high
+    max_tokens: 512
+
+  fast_text:                # low-latency text: routing, text agent, validation
+    path: ./models/text/fast_text
+    type: text
+    hf_id: Qwen/Qwen2.5-0.5B-Instruct
+    priority: high
+    max_tokens: 512
+
+  vision:                   # image description / objects
+    path: ./models/vision/fast_vision
+    type: vision
+    hf_id: HuggingFaceTB/SmolVLM-256M-Instruct
+    max_tokens: 384
+
+  multimodal:               # text + image question answering, screenshots
+    path: ./models/multimodal/fast_multimodal
+    type: multimodal
+    hf_id: HuggingFaceTB/SmolVLM-500M-Instruct
+    max_tokens: 384
+
+# Which model each agent uses (any key from `models`, or a discovered folder name). Set enabled: false to remove an agent.
+agents:
+  manager:    { model: fast_text }
+  planner:    { model: null }
+  text:       { model: fast_text }
+  vision:     { model: vision }
+  multimodal: { model: multimodal }
+  reasoning:  { model: base }
+  validation: { model: fast_text }
+  aggregator: { model: base }
+
+runtime:
+  device: auto              # auto (CUDA -> MPS -> CPU) | cuda | mps | cpu
+  offline_mode: true        # never contact the HF Hub at runtime; fail clearly if a model is missing
+  max_concurrent_agents: 4  # agent coroutines running at once
+  max_concurrent_tasks: 2   # user tasks processed at once
+  gpu_concurrency: 1        # simultaneous GPU inferences (raise only if you have VRAM to spare)
+  cpu_concurrency: 2
+  allow_cpu_fallback: true  # on CUDA OOM, retry the step on CPU
+  vram_threshold: 0.85      # evict least-recently-used idle models above this VRAM fraction
+  ram_threshold: 0.90
+  max_loaded_models: 3
+  idle_unload_seconds: 0    # >0 unloads models idle for this long
+  agent_timeout_seconds: 180
+  task_timeout_seconds: 900
+  max_retries: 1
+  max_input_tokens: 4096
+  preload: [fast_text]      # loaded at startup (skipped with a warning if not downloaded)
+  use_llm_routing: false    # let the fast_text model refine the manager's rule-based intent detection
+  model_fallbacks:          # used when a configured model is not downloaded
+    base: [fast_text]
+    fast_text: [base]
+    multimodal: [vision]
+    vision: [multimodal]
+
+generation:
+  max_tokens: 512
+  temperature: 0.2
+  top_p: 0.9
+  repetition_penalty: 1.05
+
+security:
+  max_request_mb: 25
+  max_image_mb: 10
+  max_image_pixels: 40000000
+  max_image_side: 1536
+  allowed_image_formats: [PNG, JPEG, WEBP, BMP, GIF]
+  max_prompt_chars: 20000
+
+paths:
+  models_dir: ./models
+  input_dir: ./data/input
+  output_dir: ./data/output
+  cache_dir: ./data/cache
+  tasks_dir: ./data/tasks

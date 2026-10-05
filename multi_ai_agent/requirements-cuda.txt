@@ -1,0 +1,8 @@
+# Optional NVIDIA extras. Install AFTER requirements.txt:
+#   pip install -r requirements-cuda.txt
+#
+# If your driver needs a specific CUDA build of torch, reinstall torch from the matching index first, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+#
+nvidia-ml-py>=12.535     # GPU utilization in /api/health and /api/metrics (imported as pynvml)
+# bitsandbytes>=0.43     # uncomment for 8/4-bit loading via model_kwargs (e.g. load_in_4bit)
