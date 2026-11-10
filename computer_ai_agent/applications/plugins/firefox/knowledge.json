@@ -1,0 +1,11 @@
+{
+  "application": "Firefox",
+  "description": "Firefox web browser.",
+  "tips": [
+    "ctrl+l focuses the address bar; type the URL or search terms followed by \\n.",
+    "Dismiss cookie banners and popups before interacting with the page.",
+    "Never sign in or type passwords; ask the user instead."
+  ],
+  "shortcuts": {"ctrl+l": "address bar", "ctrl+t": "new tab", "ctrl+w": "close tab", "alt+left": "back",
+                "f5": "reload", "ctrl+f": "find in page", "ctrl+shift+y": "downloads"}
+}

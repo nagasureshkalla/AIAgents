@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -93,8 +94,8 @@ def detect_device_type(preference: str = "auto") -> str:
     return "cpu"
 
 
-def get_device(preference: str = "auto") -> DeviceInfo:
-    """Detect the best available device according to `preference`."""
+def get_device(preference: str = "auto", cuda_index: int | None = None) -> DeviceInfo:
+    """Detect the best available device according to `preference`; `cuda_index` pins a specific GPU."""
     torch = _import_torch()
     dev_type = detect_device_type(preference)
     vm = psutil.virtual_memory()
@@ -108,6 +109,12 @@ def get_device(preference: str = "auto") -> DeviceInfo:
     )
     if dev_type == "cuda" and torch is not None:
         idx = best_cuda_index()
+        if cuda_index is not None:
+            if cuda_index >= torch.cuda.device_count():
+                raise RuntimeError(
+                    f"CUDA_DEVICE={cuda_index} but only {torch.cuda.device_count()} CUDA device(s) are visible"
+                )
+            idx = cuda_index
         props = torch.cuda.get_device_properties(idx)
         free, total = torch.cuda.mem_get_info(idx)
         info.torch_device = f"cuda:{idx}"
@@ -171,3 +178,50 @@ def describe(info: DeviceInfo) -> str:
         lines.append(f"GPU: {info.name}")
     lines.append(f"RAM: {info.ram_total_gb} GB")
     return "\n".join(lines)
+
+
+def gpu_details(index: int | None = None) -> list[dict[str, Any]]:
+    """Per-GPU report for /api/gpu: name, VRAM (driver view and this process' torch allocator), utilization."""
+    torch = _import_torch()
+    if torch is None or not torch.cuda.is_available():
+        return []
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+    except Exception:  # noqa: BLE001 - utilization is optional
+        pynvml = None  # type: ignore[assignment]
+    indices = [index] if index is not None else list(range(torch.cuda.device_count()))
+    out: list[dict[str, Any]] = []
+    for idx in indices:
+        props = torch.cuda.get_device_properties(idx)
+        free, total = torch.cuda.mem_get_info(idx)
+        entry: dict[str, Any] = {
+            "index": idx,
+            "device": f"cuda:{idx}",
+            "name": props.name,
+            "compute_capability": f"{props.major}.{props.minor}",
+            "vram_total_gb": round(total / _GB, 2),
+            "vram_used_gb": round((total - free) / _GB, 2),
+            "vram_free_gb": round(free / _GB, 2),
+            "torch_allocated_gb": round(torch.cuda.memory_allocated(idx) / _GB, 2),
+            "torch_reserved_gb": round(torch.cuda.memory_reserved(idx) / _GB, 2),
+            "bf16_supported": bool(torch.cuda.is_bf16_supported()),
+            "utilization": None,
+        }
+        if pynvml is not None:
+            try:
+                # NVML indexes physical GPUs; map through CUDA_VISIBLE_DEVICES when it is a plain index list.
+                visible = [v for v in os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",") if v.strip().isdigit()]
+                nvml_idx = int(visible[idx]) if idx < len(visible) else idx
+                handle = pynvml.nvmlDeviceGetHandleByIndex(nvml_idx)
+                entry["utilization"] = float(pynvml.nvmlDeviceGetUtilizationRates(handle).gpu)
+            except Exception:  # noqa: BLE001
+                pass
+        out.append(entry)
+    return out
+
+
+def cuda_version() -> str | None:
+    torch = _import_torch()
+    return getattr(getattr(torch, "version", None), "cuda", None) if torch is not None else None

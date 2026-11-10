@@ -1,0 +1,27 @@
+<!doctype html><html><head><title>Apply - Backend Engineer - Globex</title></head><body>
+<h1>Backend Engineer application</h1>
+<form id="f">
+<label for="fn">First name *</label><input id="fn" name="first_name" required>
+<label for="ln">Last name *</label><input id="ln" name="last_name" required>
+<label for="em">Email *</label><input id="em" name="email" type="email" required>
+<label for="ph">Phone</label><input id="ph" name="phone" type="tel">
+<label for="cv">Resume/CV *</label><input id="cv" name="resume" type="file" required>
+<label for="cl">Cover letter</label><textarea id="cl" name="cover_letter"></textarea>
+<label for="src">How did you hear about us?</label><select id="src" name="source"><option value="">Select...</option><option>LinkedIn</option><option>Referral</option><option>Other</option></select>
+<label for="g">Gender</label><select id="g" name="gender"><option value="">Select...</option><option>Male</option><option>Female</option><option>Decline to self-identify</option></select>
+<label for="ssn">Social Security Number</label><input id="ssn" name="ssn">
+<label for="np">What is your notice period? *</label><input id="np" name="notice" required>
+<p role="alert" id="err"></p>
+<button type="button" id="sub">Submit application</button>
+</form>
+<script>
+document.getElementById('sub').onclick = async () => {
+  const f = document.getElementById('f');
+  const missing = [...f.querySelectorAll('[required]')].filter((el) => el.type === 'file' ? !el.files.length : !el.value.trim());
+  if (missing.length) { missing.forEach((el) => el.setAttribute('aria-invalid', 'true')); err.textContent = 'Please fill in the required fields'; return; }
+  const data = { site: 'ats' };
+  for (const el of f.elements) if (el.name) data[el.name] = el.type === 'file' ? el.files[0].name : el.value;
+  await fetch('/record', { method: 'POST', body: JSON.stringify(data) });
+  document.body.innerHTML = '<h1>Thank you for applying!</h1><p>We have received your application.</p>';
+};
+</script></body></html>

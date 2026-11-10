@@ -1,0 +1,22 @@
+[
+  {
+    "id": "review-wrong-number",
+    "mode": "review",
+    "prompt": "How many days are in a leap year?",
+    "upstream": [
+      {"agent": "text", "text": "A leap year has 365 days; the extra day is added every four years."},
+      {"agent": "reasoning", "text": "Leap years add February 29, so they have 366 days. Conclusion: 366."}
+    ],
+    "expect": "JSON with valid=false and an issue naming the 365 vs 366 contradiction."
+  },
+  {
+    "id": "review-correct",
+    "mode": "review",
+    "prompt": "What is the capital of Australia?",
+    "upstream": [
+      {"agent": "text", "text": "The capital of Australia is Canberra."},
+      {"agent": "reasoning", "text": "Canberra was chosen as a compromise between Sydney and Melbourne. Conclusion: Canberra."}
+    ],
+    "expect": "JSON with valid=true and an empty issues list."
+  }
+]

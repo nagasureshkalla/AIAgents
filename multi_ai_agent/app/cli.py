@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from app.agents.registry import discover_agent_classes
 from app.core.config import Settings, load_settings
 from app.core.device import DeviceInfo, get_device
+from app.core.local_guard import LOCAL_NOTICE, CloudInferenceError, enforce_local_inference
 from app.models.model_registry import ModelRegistry
 
 WIDTH = 40
@@ -47,7 +48,7 @@ def render_banner(settings: Settings, device: DeviceInfo, registry: ModelRegistr
     host = settings.server.host
     url = f"http://{host}:{settings.server.port}"
     line = "=" * WIDTH
-    out = [line, "LOCAL MULTI AI AGENT".center(WIDTH), line, "", f"Server: {url}", f"API Docs: {url}/docs", ""]
+    out = [line, "LOCAL MULTI AI AGENT".center(WIDTH), line, "", f"Server: {url}", f"Dashboard: {url}/ui/", f"API Docs: {url}/docs", ""]
     out.append(f"Device: {device.type.upper()}")
     if device.type == "cuda":
         out.append(f"GPU: {device.name}" + (f" (+{device.gpu_count - 1} more)" if device.gpu_count > 1 else ""))
@@ -57,6 +58,25 @@ def render_banner(settings: Settings, device: DeviceInfo, registry: ModelRegistr
     out.append(f"RAM: {device.ram_total_gb} GB")
     out.append(f"Offline mode: {'on' if settings.runtime.offline_mode else 'off'}")
 
+    out += ["", "Local AI:"]
+    if device.type == "cuda":
+        out += [
+            f"  GPU: {device.name}",
+            f"  VRAM: {device.vram_total_gb} GB",
+            "  CUDA: Available",
+            f"  Device: {device.torch_device}",
+        ]
+    else:
+        out += ["  NVIDIA CUDA GPU was not detected."]
+        if settings.research.require_cuda and not settings.research.allow_cpu:
+            out += ["  Local AI inference cannot start for the research agent."]
+    out += [
+        "  AI inference: Local",
+        "  External AI APIs: Disabled",
+        f"  Web research: {'LOCAL AI + WEB' if settings.research.web_enabled else 'LOCAL AI + OFFLINE'}",
+        f"  {LOCAL_NOTICE}",
+    ]
+
     out += ["", "Models:"]
     for spec in registry.list():
         mark = "✓" if spec.installed else "✗"
@@ -65,7 +85,7 @@ def render_banner(settings: Settings, device: DeviceInfo, registry: ModelRegistr
         out.append(f"  {mark} {spec.name:<12} {spec.type.value:<10} {detail}{suffix}")
 
     out += ["", "Agents:"]
-    out += [f"  ✓ {name.capitalize()}" for name in agent_names]
+    out += [f"  ✓ {name.replace("_", " ").title()}" for name in agent_names]
 
     has_text = bool(registry.installed())
     status = "READY" if has_text else "DEGRADED (no models installed: python scripts/download_models.py --all)"
@@ -79,7 +99,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     apply_args_to_env(args)
     settings = load_settings()
-    device = get_device(settings.runtime.device)
+    try:
+        enforce_local_inference(settings)
+    except CloudInferenceError as exc:
+        raise SystemExit(f"error: {exc}") from None
+    device = get_device(settings.runtime.device, settings.inference.cuda_device)
     registry = ModelRegistry.from_settings(settings)
     agent_names = [c.name for c in discover_agent_classes() if settings.agent_config(c.name).enabled]
     print(render_banner(settings, device, registry, agent_names), flush=True)

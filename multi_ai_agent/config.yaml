@@ -18,6 +18,14 @@ models:
     priority: high
     max_tokens: 512
 
+  research:                 # web research agent: verification + final synthesis (MODEL_PATH overrides the path)
+    path: ./models/text/research
+    type: text
+    hf_id: Qwen/Qwen2.5-7B-Instruct
+    priority: high
+    dtype: bfloat16
+    max_tokens: 1024
+
   fast_text:                # low-latency text: routing, text agent, validation
     path: ./models/text/fast_text
     type: text
@@ -37,6 +45,21 @@ models:
     hf_id: HuggingFaceTB/SmolVLM-500M-Instruct
     max_tokens: 384
 
+  control_panel:            # Control Panel agent: vision model served by the local Ollama server (ollama pull qwen3.6:27b)
+    engine: ollama          # loaded/unloaded by the model manager like the HF models (keep_alive is managed here)
+    ollama_model: qwen3.6:27b
+    type: multimodal
+    est_size_gb: 18         # VRAM it needs at num_ctx 16384 on an RTX 3090 (measured 17.4 GB)
+    model_kwargs: { num_ctx: 16384 }
+
+  gpt_oss:                  # AirLLM agent, fast engine: gpt-oss-120b in Ollama (ollama pull gpt-oss:120b)
+    engine: ollama          # ~65 GB: Ollama keeps what does not fit in VRAM in system RAM (MoE experts on the CPU)
+    ollama_model: gpt-oss:120b
+    type: text
+    est_size_gb: 22         # its VRAM share on a 24 GB card; the rest lives in RAM
+    max_tokens: 2048        # reasoning + answer (gpt-oss reasons before it answers)
+    model_kwargs: { num_ctx: 8192, think: low }
+
 # Which model each agent uses (any key from `models`, or a discovered folder name). Set enabled: false to remove an agent.
 agents:
   manager:    { model: fast_text }
@@ -47,6 +70,11 @@ agents:
   reasoning:  { model: base }
   validation: { model: fast_text }
   aggregator: { model: base }
+  research:   { model: research, timeout_seconds: 600 }   # web research loop is long-running
+  control_panel: { model: control_panel, timeout_seconds: 1800 }  # desktop tasks wait for your approvals
+  web_tester: { model: control_panel, timeout_seconds: 1800 }     # shares the Ollama model with the Control Panel
+  job_agent:  { model: control_panel, timeout_seconds: 3600 }     # Auto-Apply AI; waits for your approval per application
+  airllm:     { model: gpt_oss, timeout_seconds: 10800 }          # gpt-oss-120b: Ollama (fast), else AirLLM streaming
 
 runtime:
   device: auto              # auto (CUDA -> MPS -> CPU) | cuda | mps | cpu
@@ -66,11 +94,45 @@ runtime:
   max_input_tokens: 4096
   preload: [fast_text]      # loaded at startup (skipped with a warning if not downloaded)
   use_llm_routing: false    # let the fast_text model refine the manager's rule-based intent detection
+  model_policy: on_demand   # before a task: unload idle models the chosen agents don't need only when room is
+                            # needed (on_demand) or always (exclusive); then load the models they do need
   model_fallbacks:          # used when a configured model is not downloaded
+    research: [base, fast_text]
     base: [fast_text]
     fast_text: [base]
     multimodal: [vision]
     vision: [multimodal]
+
+# All inference is local. There is no cloud LLM option; ai_mode must stay "local".
+inference:
+  ai_mode: local
+  engine: transformers      # default engine for models with engine: auto (transformers | llama_cpp | vllm)
+  cuda_device: null         # pin a GPU index (CUDA_DEVICE); null = the GPU with the most free memory
+  gpu_mode: single          # "multi" is reserved for future multi-GPU inference
+  max_context_length: 8192
+  max_new_tokens: 2048
+  ollama_url: http://127.0.0.1:11434   # local Ollama server for engine: ollama models (must be this computer)
+
+# Web research agent. The web is only a source of information; the LLM runs on your GPU.
+research:
+  enabled: true
+  web_enabled: true         # false = LOCAL AI + OFFLINE (no web requests; answers from the model only)
+  max_iterations: 5         # PLAN -> SEARCH -> READ -> ANALYZE loops before answering
+  max_search_results: 10
+  max_sources: 10
+  default_depth: normal     # quick | normal | deep
+  request_timeout: 20
+  max_page_mb: 10
+  max_concurrent_fetches: 4
+  search_provider: ddgs     # ddgs (DuckDuckGo, no key) | searxng (set searxng_url)
+  searxng_url: null
+  use_playwright: auto      # auto = only for JavaScript-heavy pages, if playwright is installed
+  respect_robots: true
+  fast_model: research      # planning, search queries, gap checks. Point at a 3B-8B model to speed these up;
+                            # the 0.5B fast_text model is too weak to plan research reliably.
+  reasoning_model: research # verification and final answer
+  require_cuda: true        # refuse to run research inference without an NVIDIA GPU
+  allow_cpu: false          # debug only
 
 generation:
   max_tokens: 512
@@ -92,3 +154,49 @@ paths:
   output_dir: ./data/output
   cache_dir: ./data/cache
   tasks_dir: ./data/tasks
+
+# Control Panel agent: operates desktop applications through the computer_ai_agent service (its own venv + web UI).
+control_panel:
+  enabled: true
+  project_dir: ../computer_ai_agent
+  url: http://127.0.0.1:8765   # also the live screen / action overlay UI
+  autostart: true              # start the service on first use (with the model above) if it is not running
+  display: null                # X display to control; null = your session ($DISPLAY). e.g. ":7" for a Xephyr test screen
+  require_confirmation: true   # ask before deleting, sending, buying, publishing, risky shell commands
+  startup_timeout: 60
+  stop_after_task: true        # close the service (and its port) after every desktop task; the next task starts it again
+
+# Web Tester agent: tests websites with the agent-browser CLI (npm i -g agent-browser). It only visits the target
+# site's domain (--allowed-domains) and writes report.md + screenshots to output_dir/<task id>/.
+web_tester:
+  enabled: true
+  browser_path: /usr/bin/google-chrome   # null = let agent-browser find/install Chrome for Testing
+  headed: false                # true = watch the browser while it tests
+  max_steps: 30                # browser commands the model may choose per run
+  command_timeout: 45
+  skills: [core, dogfood]      # guidance loaded from the installed CLI: agent-browser skills get <name>
+  output_dir: ./data/output/web_tests
+  export_to_testing_tree: true  # save the tested flows as TestingTree test cases + suites (project "Web Tester · <host>")
+  testing_tree_api: http://127.0.0.1:5001
+  testing_tree_ui: http://localhost:5000
+  run_exported_tests: true     # replay them in TestingTree and add pass/fail to the report
+  run_timeout: 300
+
+# Job Agent: finds jobs, scores them against your resume and drafts applications with the local model through
+# Auto-Apply AI (../../JobAgent/Auto-Apply-AI, autostarted on :8010 with the same Ollama model). It only mails addresses
+# published in the posting and asks you (Approve / Deny in the chat) before every single application.
+job_agent:
+  enabled: true
+  project_dir: ../../JobAgent/Auto-Apply-AI
+  url: http://127.0.0.1:8010
+  web_url: http://localhost:8000/job   # Auto-Apply web app, served here at /job/: resume, Gmail, history
+  autostart: true
+  user_email: null                 # only for a multi-user Auto-Apply; local mode has one owner account
+  resume_path: null                # e.g. ~/Documents/resume.pdf: sets the account up on first use (or name it in chat)
+  max_results: 8
+  max_drafts: 3
+  min_score: 0.0
+  approval_timeout: 900
+
+speech:
+  language: en              # pin Whisper to English: auto-detect misreads short / Bluetooth (16 kHz) clips

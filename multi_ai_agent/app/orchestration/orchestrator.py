@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Recovery policy per error type (see `_next_action`).
 _RETRYABLE = {"timeout", "agent_error", "model_load", "oom", "cuda", "resources"}
-_NOT_RECOVERABLE = {"invalid_input", "missing_model"}
+_NOT_RECOVERABLE = {"invalid_input", "missing_model", "gpu_unavailable", "web_disabled", "control_failed", "web_test_failed", "job_agent_failed"}
 
 
 class Orchestrator:
@@ -227,7 +227,7 @@ class Orchestrator:
             for sid, r in results.items()
             if not r.ok and sid in self._ancestors(plan, step)
         ]
-        task.params = {**step.params, "failed_steps": failed}
+        task.params = {**record.request.options.params, **step.params, "failed_steps": failed}
         task.timeout = step.timeout
         # Messages follow `depends_on` order: the validation agent treats the first one as the candidate answer.
         task.messages = [

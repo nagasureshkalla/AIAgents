@@ -1,0 +1,10 @@
+{
+  "application": "Calculator",
+  "description": "GNOME Calculator. The expression field has keyboard focus when the window is active.",
+  "tips": [
+    "Fastest: type_text the whole expression followed by \\n, e.g. \"25*89\\n\". Use * for multiply and / for divide.",
+    "Escape clears the current entry.",
+    "The result replaces the expression in the display; report it in the done action's text."
+  ],
+  "shortcuts": {"escape": "clear", "ctrl+z": "undo"}
+}

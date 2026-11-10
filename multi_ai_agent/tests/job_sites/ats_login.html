@@ -1,0 +1,14 @@
+<!doctype html><html><head><title>Sign in - Globex Careers</title></head><body>
+<h1>Sign in to apply</h1>
+<label for="u">Email</label><input id="u" type="email">
+<label for="p">Password</label><input id="p" type="password">
+<p role="alert" id="err"></p>
+<button id="go">Sign in</button>
+<p>New here? <a href="/ats/signup">Create an account</a></p>
+<script>
+document.getElementById('go').onclick = () => {
+  const acct = JSON.parse(localStorage.getItem('acct') || 'null');
+  if (acct && acct.email === u.value && acct.password === p.value && acct.verified) location.href = '/ats/apply/222';
+  else document.getElementById('err').textContent = 'Wrong email or password';
+};
+</script></body></html>

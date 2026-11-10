@@ -1,0 +1,14 @@
+[
+  {
+    "id": "explain-cache-miss",
+    "mode": "explain",
+    "prompt": "Our service's cache hit rate dropped from 92% to 40% right after we added the user's locale to the cache key. Traffic and the number of cached items did not change. Why, and what should we do?",
+    "expect": "Key cardinality multiplied by locales, so the same item is cached once per locale; fix by keeping locale out of the key for locale-independent data or caching per-locale parts separately. Ends with a 'Conclusion:' line."
+  },
+  {
+    "id": "key-points-memo",
+    "mode": "key_points",
+    "prompt": "Memo: We will move the nightly batch from 01:00 to 03:00 because the backup job now runs until 02:30 and both saturate disk I/O. Reports that depend on the batch will be ready at 05:00 instead of 03:00. The finance team must agree, since their 04:00 reconciliation reads those reports.",
+    "expect": "3-6 bullets; flags the conflict that reports at 05:00 miss finance's 04:00 reconciliation."
+  }
+]

@@ -52,6 +52,11 @@ class TextModel(LocalModel):
         lines = [f"{m['role'].capitalize()}: {m['content']}" for m in messages]
         return "\n\n".join(lines) + "\n\nAssistant:"
 
+    def _max_prompt_tokens(self, max_new_tokens: int) -> int:
+        """Prompt budget: at least runtime.max_input_tokens, up to the context window minus the reply."""
+        window = self.settings.inference.max_context_length - max_new_tokens
+        return max(self.settings.runtime.max_input_tokens, window)
+
     def _generate(self, request: GenerationRequest) -> GenerationOutput:
         import torch
 
@@ -60,7 +65,7 @@ class TextModel(LocalModel):
             prompt,
             return_tensors="pt",
             truncation=True,
-            max_length=self.settings.runtime.max_input_tokens,
+            max_length=self._max_prompt_tokens(request.max_new_tokens),
             # Chat templates already contain BOS/special tokens.
             add_special_tokens=not self._has_chat_template,
         )

@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from app.api.deps import ContainerDep
 from app.core.exceptions import ModelNotFoundError
 from app.schemas.result import ModelInfo
 
 router = APIRouter(prefix="/api/models", tags=["models"])
+
+
+class ModelAction(BaseModel):
+    name: str
+    device: str | None = Field(default=None, pattern=r"^(cpu|mps|cuda(:\d+)?)$")
+    force: bool = False
+
+
+class DownloadRequest(BaseModel):
+    hf_id: str = Field(..., description="Hugging Face repo id, e.g. Qwen/Qwen2.5-7B-Instruct")
+    type: Literal["text", "vision", "multimodal"] = "text"
+    name: str | None = Field(default=None, description="Folder name under models/<type>/")
 
 
 async def _info(container: ContainerDep, name: str) -> ModelInfo:
@@ -21,6 +36,32 @@ async def _info(container: ContainerDep, name: str) -> ModelInfo:
 @router.get("", response_model=list[ModelInfo], summary="List configured and discovered local models")
 async def list_models(container: ContainerDep) -> list[ModelInfo]:
     return await container.models.list_models()
+
+
+@router.post("/load", response_model=ModelInfo, summary="Load a model onto the GPU (body: {name})")
+async def load_model_body(body: ModelAction, container: ContainerDep) -> ModelInfo:
+    return await load_model(body.name, container, body.device)
+
+
+@router.post("/unload", summary="Unload a model and free its VRAM (body: {name})")
+async def unload_model_body(body: ModelAction, container: ContainerDep) -> dict:
+    return await unload_model(body.name, container, body.force)
+
+
+@router.post("/download", summary="Download a model from the Hugging Face Hub into models/ (no remote inference)")
+async def download_model(body: DownloadRequest, container: ContainerDep) -> dict:
+    assert container.downloads is not None
+    return container.downloads.start(body.hf_id, body.type, body.name).to_dict()
+
+
+@router.get("/downloads", summary="Model download jobs and their progress")
+async def list_downloads(container: ContainerDep) -> list[dict]:
+    return container.downloads.list() if container.downloads else []
+
+
+@router.post("/refresh", summary="Re-scan models/ for newly added model folders")
+async def refresh_models(container: ContainerDep) -> dict:
+    return {"discovered": container.models.refresh()}
 
 
 @router.get("/{name}", response_model=ModelInfo, summary="Get one model's status")

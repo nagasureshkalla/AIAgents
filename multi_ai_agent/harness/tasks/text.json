@@ -1,0 +1,20 @@
+[
+  {
+    "id": "summarize-incident",
+    "mode": "summarize",
+    "prompt": "Summarize this incident report for the on-call channel:\n\nAt 02:14 UTC the payments API began returning HTTP 503 for 18% of requests. The cause was a connection-pool limit of 50 on the new Postgres replica, set during Tuesday's migration; the old replica allowed 200. Rolling the limit back to 200 at 02:41 restored service. No payments were lost: the clients retried. Action items: add a pool-saturation alert (owner: Priya, due Friday) and add the pool limit to the migration checklist (owner: Tom).",
+    "expect": "Keeps 02:14/02:41 UTC, 18%, 50 vs 200, no payments lost, both owners and the Friday due date; invents nothing."
+  },
+  {
+    "id": "extract-invoice",
+    "mode": "extract",
+    "prompt": "Extract invoice_number, vendor, total_amount, currency, due_date and po_number as JSON.\n\nINVOICE INV-20931 from Northwind Traders. Amount due: 1,284.50 EUR. Payment terms: net 30 from 2026-03-02.",
+    "expect": "Valid JSON only; total_amount 1284.50 (a number), currency EUR, due_date null or 2026-04-01 with no guessing beyond the terms, po_number null."
+  },
+  {
+    "id": "classify-ticket",
+    "mode": "classify",
+    "prompt": "Allowed labels: billing, bug, feature_request, account_access.\n\nTicket: \"Since this morning the export button gives me a blank CSV, but last week it worked. I'm on the Pro plan.\"",
+    "expect": "First line exactly `bug`, then one sentence."
+  }
+]

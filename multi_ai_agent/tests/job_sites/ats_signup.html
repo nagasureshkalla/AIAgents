@@ -1,0 +1,17 @@
+<!doctype html><html><head><title>Create account - Globex Careers</title></head><body>
+<h1>Create your account</h1>
+<label for="e">Email address</label><input id="e" type="email" required>
+<label for="p1">Password</label><input id="p1" type="password" required>
+<label for="p2">Confirm password</label><input id="p2" type="password" required>
+<input type="checkbox" id="terms" required><label for="terms">I agree to the Terms of Service</label>
+<input type="checkbox" id="mkt"><label for="mkt">Send me marketing emails</label>
+<p role="alert" id="err"></p>
+<button id="create">Create account</button>
+<script>
+document.getElementById('create').onclick = async () => {
+  if (!e.value || !p1.value || p1.value !== p2.value || !terms.checked) { err.textContent = 'Please complete all fields'; return; }
+  localStorage.setItem('acct', JSON.stringify({ email: e.value, password: p1.value, verified: false }));
+  await fetch('/record', { method: 'POST', body: JSON.stringify({ site: 'signup', email: e.value, password_len: p1.value.length, marketing: mkt.checked }) });
+  location.href = '/ats/verify';
+};
+</script></body></html>

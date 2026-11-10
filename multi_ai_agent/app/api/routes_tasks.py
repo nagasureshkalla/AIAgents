@@ -11,11 +11,11 @@ from fastapi import APIRouter, File, Form, Query, Response, UploadFile, WebSocke
 
 from app.api.deps import ContainerDep
 from app.core.container import Container
-from app.core.events import EventType, TaskEvent
+from app.core.events import ALL_TASKS, EventType, TaskEvent
 from app.core.exceptions import AgentTimeoutError, InvalidImageError, InvalidRequestError, TaskNotFoundError
 from app.schemas.common import Priority, TaskStatus
 from app.schemas.result import ChatResponse, TaskResult
-from app.schemas.task import AnalyzeRequest, ChatRequest, TaskCreatedResponse, TaskRecord, TaskRequest
+from app.schemas.task import AnalyzeRequest, ChatRequest, TaskCreatedResponse, TaskOptions, TaskRecord, TaskRequest
 from app.utils.files import safe_join, sanitize_filename
 from app.utils.image import extension_for, validate_image_bytes
 
@@ -115,6 +115,7 @@ async def upload_image(
     priority: str = Form(default="NORMAL"),
     wait: bool = Form(default=False, description="Block until the task finishes and return the result"),
     wait_timeout: float = Form(default=300, gt=0, le=3600),
+    agents: str | None = Form(default=None, description="Comma-separated worker agents to force (skips routing)"),
 ):
     security = container.settings.security
     max_bytes = int(security.max_image_mb * 1024 * 1024)
@@ -131,7 +132,8 @@ async def upload_image(
     target = safe_join(container.settings.input_dir, f"{uuid.uuid4().hex[:10]}_{stem}.{extension_for(fmt)}")
     await asyncio.to_thread(target.write_bytes, data)
 
-    request = TaskRequest(prompt=prompt, image_path=str(target), priority=prio)
+    forced = [a.strip() for a in agents.split(",") if a.strip()] if agents else None
+    request = TaskRequest(prompt=prompt, image_path=str(target), priority=prio, options=TaskOptions(agents=forced))
     if wait:
         record = await _wait(container, request, wait_timeout)
         response.status_code = status.HTTP_200_OK
@@ -176,3 +178,19 @@ async def task_stream(websocket: WebSocket, task_id: str) -> None:
         pass
     finally:
         container.events.unsubscribe(task_id, queue)
+
+
+@ws_router.websocket("/ws/events")
+async def all_events_stream(websocket: WebSocket) -> None:
+    """Stream every task's events as they happen (no replay). Used by the dashboard at /ui/."""
+    container: Container = websocket.app.state.container
+    await websocket.accept()
+    queue = container.events.subscribe(ALL_TASKS, replay=False)
+    try:
+        while True:
+            event = await queue.get()
+            await websocket.send_json(event.to_message())
+    except WebSocketDisconnect:
+        pass
+    finally:
+        container.events.unsubscribe(ALL_TASKS, queue)

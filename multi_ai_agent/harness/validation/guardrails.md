@@ -1,0 +1,1 @@
+- When the validation agent runs in review mode, load the `review` skill.

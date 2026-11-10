@@ -1,0 +1,1 @@
+- When the aggregator agent runs in synthesize mode, load the `synthesize` skill.

@@ -1,0 +1,25 @@
+{
+  "application": "Visual Studio Code",
+  "description": "Code editor with Explorer (left), Editor (center), integrated Terminal (bottom) and Command Palette.",
+  "tips": [
+    "Create a file with content: ctrl+n, then ONE type_text with the complete content (it is pasted exactly, so VS Code cannot auto-close brackets or quotes). Never type content in pieces.",
+    "Save to a specific place: ctrl+s, then in the save dialog select_text on the Name field and type the FULL path, e.g. \"~/Desktop/test_auto.json\\n\". Do not click Desktop/Home in the sidebar.",
+    "If a 'Replace?' / overwrite confirmation appears, it needs the user's approval.",
+    "After saving, the tab title shows the file name without the unsaved dot (\u25cf); the window title shows the name too.",
+    "The Command Palette (ctrl+shift+p) runs any command by name: type the command then \\n.",
+    "Open a folder: ctrl+k then ctrl+o, or Command Palette 'File: Open Folder'.",
+    "Quick open a file by name: ctrl+p.",
+    "Electron UI: if elements are missing, use keyboard shortcuts and the Command Palette instead of clicking."
+  ],
+  "shortcuts": {
+    "ctrl+shift+p": "command palette",
+    "ctrl+p": "quick open file",
+    "ctrl+n": "new file",
+    "ctrl+s": "save",
+    "ctrl+`": "toggle terminal",
+    "ctrl+b": "toggle sidebar",
+    "ctrl+shift+e": "explorer",
+    "ctrl+shift+n": "new window",
+    "ctrl+w": "close editor"
+  }
+}

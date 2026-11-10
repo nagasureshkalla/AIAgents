@@ -1,0 +1,13 @@
+[
+  {
+    "id": "synthesize-conflict",
+    "mode": "synthesize",
+    "prompt": "Is it safe to run `VACUUM FULL` on our production Postgres table during business hours?",
+    "upstream": [
+      {"agent": "text", "text": "VACUUM FULL reclaims disk space by rewriting the table. It is a routine maintenance command."},
+      {"agent": "reasoning", "text": "VACUUM FULL takes an ACCESS EXCLUSIVE lock for the whole rewrite, blocking reads and writes. On a large table that can be minutes to hours. Conclusion: not during business hours; use plain VACUUM or pg_repack instead."}
+    ],
+    "issues": [{"message": "The text agent's answer omits the exclusive lock."}],
+    "expect": "Says no: ACCESS EXCLUSIVE lock blocks reads/writes; suggests plain VACUUM or pg_repack; does not mention the specialists."
+  }
+]

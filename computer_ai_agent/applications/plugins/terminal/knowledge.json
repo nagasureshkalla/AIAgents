@@ -1,0 +1,13 @@
+{
+  "application": "Terminal",
+  "description": "Shell terminal. Typing goes to the shell prompt at the bottom.",
+  "tips": [
+    "Run a command: type_text the command followed by \\n (no need to click first; the terminal has focus).",
+    "Wait a moment for long-running commands, then read the output before declaring done.",
+    "Put the relevant command output in the done action's text so the user sees the answer.",
+    "Commands that delete files, use sudo or change the system require the user's approval.",
+    "ctrl+c cancels a running command; ctrl+shift+c / ctrl+shift+v copy and paste."
+  ],
+  "shortcuts": {"ctrl+shift+t": "new tab", "ctrl+shift+c": "copy", "ctrl+shift+v": "paste", "ctrl+c": "interrupt",
+                "ctrl+l": "clear screen"}
+}

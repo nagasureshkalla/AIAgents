@@ -33,10 +33,11 @@ class ReasoningAgent(BaseAgent):
     description = "Step-by-step reasoning, interpretation and inference over the request and other agents' findings."
     capabilities = ["reasoning", "analysis", "interpretation", "inference", "explanation"]
     default_model = "base"
+    prompts = SYSTEM_PROMPTS
 
     async def run(self, task: AgentTask) -> dict[str, Any]:
         mode = task.mode or "explain"
-        system = SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["explain"])
+        system = self.system_prompt(mode if mode in SYSTEM_PROMPTS else "explain")
         evidence = self.render_upstream(task)
         user = f"User request:\n{task.prompt}"
         if evidence:

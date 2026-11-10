@@ -20,6 +20,8 @@ class EventType(StrEnum):
     AGENT_FAILED = "agent_failed"
     AGENT_RETRY = "agent_retry"
     AGENT_SKIPPED = "agent_skipped"
+    AGENT_PROGRESS = "agent_progress"
+    RESEARCH_SOURCE = "research_source"
     AGGREGATION_STARTED = "aggregation_started"
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
@@ -27,6 +29,8 @@ class EventType(StrEnum):
 
 
 TERMINAL_EVENTS = frozenset({EventType.TASK_COMPLETED, EventType.TASK_FAILED, EventType.TASK_CANCELLED})
+
+ALL_TASKS = "*"  # subscribe() key that receives every task's events (used by the dashboard's global stream)
 
 
 class TaskEvent(BaseModel):
@@ -66,7 +70,8 @@ class EventBus:
             while len(self._history) > self._max_tasks:
                 self._history.popitem(last=False)
         history.append(event)
-        for queue in list(self._subscribers.get(event.task_id, ())):
+        targets = [*self._subscribers.get(event.task_id, ()), *self._subscribers.get(ALL_TASKS, ())]
+        for queue in targets:
             if queue.full():  # slow consumer: drop oldest rather than block the orchestrator
                 try:
                     queue.get_nowait()
@@ -81,7 +86,7 @@ class EventBus:
 
     def subscribe(self, task_id: str, replay: bool = True) -> asyncio.Queue[TaskEvent]:
         queue: asyncio.Queue[TaskEvent] = asyncio.Queue(maxsize=self._queue_size)
-        if replay:
+        if replay and task_id != ALL_TASKS:
             for evt in self._history.get(task_id, ()):
                 if queue.full():
                     queue.get_nowait()

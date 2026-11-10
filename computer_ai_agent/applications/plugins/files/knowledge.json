@@ -1,0 +1,12 @@
+{
+  "application": "Files",
+  "description": "File manager showing folders and files of the current location.",
+  "tips": [
+    "Go to a folder by path: hotkey ctrl+l, type the path (e.g. ~/Downloads) followed by \\n.",
+    "Search the current folder: ctrl+f then type the name.",
+    "Sort by modification date to find the latest file: use the view options menu or list view column 'Modified'.",
+    "Deleting files needs the user's approval."
+  ],
+  "shortcuts": {"ctrl+l": "location bar", "ctrl+f": "search", "ctrl+shift+n": "new folder", "f2": "rename",
+                "ctrl+h": "show hidden files", "alt+up": "parent folder", "ctrl+1": "list view", "ctrl+2": "grid view"}
+}

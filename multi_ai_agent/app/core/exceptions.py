@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 class AgentSystemError(Exception):
     status_code: int = 500
     code: str = "internal_error"
+    error_type: str | None = None  # overrides classify_error() for the orchestrator's recovery policy
 
     def __init__(self, message: str, *, details: dict | None = None) -> None:
         super().__init__(message)
@@ -84,6 +85,8 @@ def classify_error(exc: BaseException) -> str:
     """Map an exception to a coarse error type used by the orchestrator's recovery policy."""
     from app.core.device import is_cuda_error, is_oom_error
 
+    if isinstance(exc, AgentSystemError) and exc.error_type:
+        return exc.error_type
     if isinstance(exc, GPUOutOfMemoryError) or is_oom_error(exc):
         return "oom"
     if isinstance(exc, ModelNotFoundError):

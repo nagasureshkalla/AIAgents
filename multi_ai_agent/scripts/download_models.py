@@ -5,6 +5,7 @@ Examples:
     python scripts/download_models.py --all                      # every model in config.yaml with an hf_id
     python scripts/download_models.py --model Qwen/Qwen2.5-0.5B-Instruct --type text
     python scripts/download_models.py --model HuggingFaceTB/SmolVLM-256M-Instruct --type vision --name fast_vision
+    python scripts/download_models.py --model openai/whisper-large-v3-turbo --type speech --name whisper
     python scripts/download_models.py --list
 
 This is the only component that contacts the Hugging Face Hub. The server itself loads models from
@@ -104,7 +105,7 @@ def list_models(settings: Settings) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", help="Hugging Face model id, e.g. Qwen/Qwen2.5-0.5B-Instruct")
-    parser.add_argument("--type", choices=[t.value for t in ModelType], help="Capability folder")
+    parser.add_argument("--type", choices=[*(t.value for t in ModelType), "speech"], help="Capability folder (speech = voice input)")
     parser.add_argument("--name", help="Folder name under models/<type>/ (default: derived from the id)")
     parser.add_argument("--revision", help="Branch, tag or commit")
     parser.add_argument("--all", action="store_true", help="Download every model in config.yaml that has an hf_id")

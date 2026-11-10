@@ -26,6 +26,7 @@ class ValidationAgent(BaseAgent):
     description = "Validates candidate answers: completeness, consistency with evidence, and failed upstream steps."
     capabilities = ["validation", "consistency_check", "quality_check", "fact_checking"]
     default_model = "fast_text"
+    prompts = {"review": REVIEW_SYSTEM}
 
     def rule_checks(self, task: AgentTask) -> tuple[list[dict[str, Any]], str, str]:
         upstream = task.upstream()
@@ -73,7 +74,7 @@ class ValidationAgent(BaseAgent):
                 f"EVIDENCE:\n{truncate(evidence, 3000) or '(none)'}"
             )
             try:
-                out = await self.generate(task, user, system=REVIEW_SYSTEM, max_tokens=160, temperature=0.0)
+                out = await self.generate(task, user, system=self.system_prompt("review"), max_tokens=160, temperature=0.0)
                 parsed = extract_json(out.text)
                 if isinstance(parsed, dict) and "valid" in parsed:
                     llm_review = {

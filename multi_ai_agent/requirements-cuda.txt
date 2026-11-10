@@ -6,3 +6,9 @@
 #
 nvidia-ml-py>=12.535     # GPU utilization in /api/health and /api/metrics (imported as pynvml)
 # bitsandbytes>=0.43     # uncomment for 8/4-bit loading via model_kwargs (e.g. load_in_4bit)
+
+# Optional inference engines (set `engine:` per model in config.yaml or INFERENCE_ENGINE):
+# llama.cpp for GGUF models, CUDA build:
+#   CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+# vLLM for high-throughput inference of larger models (needs plenty of VRAM):
+#   pip install vllm

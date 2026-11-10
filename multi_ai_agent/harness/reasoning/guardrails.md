@@ -1,0 +1,5 @@
+- When the reasoning agent runs in interpret_visual mode, load the `interpret_visual` skill.
+- When the reasoning agent runs in diagnose mode, load the `diagnose` skill.
+- When the reasoning agent runs in key_points mode, load the `key_points` skill.
+- When the reasoning agent runs in rationale mode, load the `rationale` skill.
+- When the reasoning agent runs in explain mode, load the `explain` skill.

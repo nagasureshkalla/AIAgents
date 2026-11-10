@@ -1,0 +1,11 @@
+{
+  "application": "LibreOffice",
+  "description": "Office suite with a full accessibility tree (menus, toolbars, document text).",
+  "tips": [
+    "Typing goes into the document at the cursor once the document area has focus.",
+    "Save: ctrl+s; a 'Keep current format' dialog may appear for non-ODF files.",
+    "In Calc, the Name Box (top left) jumps to a cell: click it, type e.g. B2 and \\n."
+  ],
+  "shortcuts": {"ctrl+s": "save", "ctrl+shift+s": "save as", "ctrl+n": "new document", "ctrl+b": "bold",
+                "ctrl+z": "undo", "f12": "numbered list"}
+}

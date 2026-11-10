@@ -14,8 +14,17 @@ from app.core.config import Settings
 from app.core.device import DeviceInfo, get_device, memory_probe
 from app.core.events import EventBus, EventType
 from app.core.exceptions import InvalidRequestError
-from app.models.model_manager import MemoryProbe, ModelFactory, ModelManager, create_local_model
+from app.core.harness import HarnessStore
+from app.core.local_guard import enforce_local_inference
+from app.models.downloader import DownloadManager
+from app.models.model_manager import (
+    MemoryProbe,
+    ModelFactory,
+    ModelManager,
+    create_local_model,
+)
 from app.models.model_registry import ModelRegistry
+from app.models.speech_model import SpeechToText, TextToSpeech
 from app.orchestration.orchestrator import Orchestrator
 from app.orchestration.result_aggregator import ResultAggregator
 from app.orchestration.scheduler import ResourceScheduler
@@ -52,6 +61,10 @@ class Container:
     store: TaskStore
     orchestrator: Orchestrator
     queue: TaskQueue
+    downloads: DownloadManager | None = None
+    speech: SpeechToText | None = None
+    tts: TextToSpeech | None = None
+    cloud_keys_ignored: list[str] = field(default_factory=list)
     started_at: float = field(default_factory=time.time)
 
     @classmethod
@@ -64,15 +77,26 @@ class Container:
         probe: MemoryProbe = memory_probe,
         persist_tasks: bool = True,
     ) -> "Container":
+        cloud_keys = enforce_local_inference(settings)
         apply_offline_env(settings)
         ensure_dirs(settings.input_dir, settings.output_dir, settings.cache_dir, settings.tasks_dir)
-        device_info = device_info or get_device(settings.runtime.device)
+        device_info = device_info or get_device(settings.runtime.device, settings.inference.cuda_device)
         model_registry = ModelRegistry.from_settings(settings)
         models = ModelManager(model_registry, settings, device_info, factory=model_factory, probe=probe)
         scheduler = ResourceScheduler(models, settings)
         events = EventBus()
         monitor = PerformanceMonitor()
-        ctx = AgentContext(settings=settings, scheduler=scheduler, models=models, monitor=monitor)
+        harness = None
+        if settings.harness.enabled:
+            harness = HarnessStore(
+                settings.resolve_path(settings.harness.root),
+                {agent: settings.resolve_path(d) for agent, d in settings.harness.dirs.items()},
+            )
+        tts = TextToSpeech(settings)
+        ctx = AgentContext(
+            settings=settings, scheduler=scheduler, models=models, monitor=monitor, events=events, harness=harness,
+            tts=tts,
+        )
         agents = AgentRegistry.build(ctx)
         aggregator = ResultAggregator(ctx)
         store = TaskStore(settings.tasks_dir if persist_tasks else None)
@@ -102,6 +126,10 @@ class Container:
             store=store,
             orchestrator=orchestrator,
             queue=queue,
+            downloads=DownloadManager(models.refresh, os.environ.get("MAA_CONFIG")),
+            cloud_keys_ignored=cloud_keys,
+            speech=SpeechToText(settings, device_info),
+            tts=tts,
         )
 
     async def start(self) -> None:
@@ -110,7 +138,7 @@ class Container:
         for name in self.settings.runtime.preload:
             try:
                 await self.models.load_model(self.models.resolve(name))
-            except Exception as exc:  # noqa: BLE001 - a missing preload must not block startup
+            except Exception as exc:
                 logger.warning("preload of model %s failed: %s", name, exc)
         logger.info(
             "system ready: device=%s agents=%s models=%s",
@@ -120,8 +148,15 @@ class Container:
         )
 
     async def stop(self) -> None:
+        if self.downloads is not None:
+            await self.downloads.shutdown()
         await self.queue.stop()
+        if self.speech is not None:
+            self.speech.unload()
         await self.models.shutdown()
+        from app.agents.control_panel_agent import ControlPanelClient
+
+        ControlPanelClient.shutdown()  # the computer_ai_agent service, if this process started it
 
     # ------------------------------------------------------------------ task API
     def prepare_request(self, request: TaskRequest) -> TaskRequest:

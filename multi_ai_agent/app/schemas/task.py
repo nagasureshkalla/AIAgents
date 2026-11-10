@@ -19,6 +19,9 @@ class TaskOptions(BaseModel):
     )
     skip_validation: bool = False
     timeout_seconds: float | None = Field(default=None, gt=0)
+    params: dict[str, Any] = Field(
+        default_factory=dict, description="Extra per-request parameters for worker agents (e.g. research depth)."
+    )
 
 
 class TaskRequest(BaseModel):

@@ -9,6 +9,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 from app.core.config import Settings
 from app.core.device import DeviceInfo, empty_cache, is_oom_error, memory_probe
@@ -40,11 +41,24 @@ class ModelState(StrEnum):
 
 
 def create_local_model(spec: ModelSpec, device: str, settings: Settings) -> LocalModel:
-    """Default factory: build the right wrapper for the model type and load weights (blocking)."""
-    if spec.type == ModelType.TEXT:
+    """Default factory: build the right engine wrapper for the model and load weights (blocking)."""
+    engine = spec.resolved_engine(settings.inference.engine)
+    if engine == "ollama":
+        from app.models.engines.ollama_engine import OllamaModel
+
+        model: LocalModel = OllamaModel(spec, device, settings)
+    elif engine == "llama_cpp":
+        from app.models.engines.llama_cpp_engine import LlamaCppModel
+
+        model = LlamaCppModel(spec, device, settings)
+    elif engine == "vllm":
+        from app.models.engines.vllm_engine import VLLMModel
+
+        model = VLLMModel(spec, device, settings)
+    elif spec.type == ModelType.TEXT:
         from app.models.text_model import TextModel
 
-        model: LocalModel = TextModel(spec, device, settings)
+        model = TextModel(spec, device, settings)
     else:
         from app.models.vision_model import VisionModel
 
@@ -90,6 +104,7 @@ class ModelManager:
         self._load_gate = asyncio.Lock()  # one load at a time so capacity checks stay consistent
         self._release_event = asyncio.Event()
         self._idle_task: asyncio.Task | None = None
+        self._protected: dict[str, int] = {}  # model name -> active prepare() calls that need it resident
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
@@ -207,6 +222,8 @@ class ModelManager:
     async def list_models(self) -> list[ModelInfo]:
         infos: list[ModelInfo] = []
         for spec in self.registry.list():
+            raw = spec.metadata() if spec.installed else {"format": spec.format}
+            meta = {k: raw.get(k) for k in ("format", "architecture", "quantization")}
             entries = [e for e in self._entries.values() if e.spec.name == spec.name] or [None]
             for entry in entries:
                 infos.append(
@@ -224,9 +241,16 @@ class ModelManager:
                         memory_gb=entry.model.memory_gb if entry and entry.model else None,
                         last_used=entry.last_used if entry and entry.last_used else None,
                         error=entry.error if entry else None,
+                        engine=spec.resolved_engine(self.settings.inference.engine),
+                        est_vram_gb=spec.estimated_memory_gb() if spec.installed else None,
+                        **meta,
                     )
                 )
         return infos
+
+    def refresh(self) -> list[str]:
+        """Re-scan the models directory (after a download) and return newly discovered model names."""
+        return [spec.name for spec in self.registry.refresh(self.settings.models_dir)]
 
     def memory(self, device: str) -> tuple[float, float]:
         """(free_gb, total_gb) for a device, via the configured probe."""
@@ -256,6 +280,101 @@ class ModelManager:
         threshold = self._threshold(target)
         projected_used = (total - free - reclaimable) + spec.estimated_memory_gb()
         return projected_used <= total * threshold
+
+    # ------------------------------------------------------------------ agent requirements
+    def resolve_required(self, name: str) -> str:
+        """Like resolve(), but an Ollama model never silently falls back to a different (HF) model."""
+        spec = self.registry.get(name)
+        if spec.is_ollama:
+            if not spec.installed:
+                raise self._missing_error(spec)
+            return name
+        return self.resolve(name)
+
+    async def prepare(self, required: list[str], *, policy: str | None = None,
+                      on_event: Callable[[str, str], None] | None = None) -> dict[str, Any]:
+        """Make device memory match what the selected agents need.
+
+        1. Resolve each required model (installed fallbacks for HF models; Ollama models must be pulled).
+        2. Unload idle models that are NOT required: least recently used first, only until the missing required
+           models fit ("on_demand", default) or all of them ("exclusive").
+        3. Load the required models that are not resident, protected from evicting each other.
+        Models still running inference for another task are never unloaded."""
+        policy = policy or self.settings.runtime.model_policy
+        notify = on_event or (lambda kind, model: None)
+        names: list[str] = []
+        skipped: dict[str, str] = {}
+        for name in dict.fromkeys(required):
+            try:
+                resolved = self.resolve_required(name)
+            except Exception as exc:
+                skipped[name] = str(exc)
+                continue
+            if resolved not in names:
+                names.append(resolved)
+        keep = set(names)
+        for n in keep:
+            self._protected[n] = self._protected.get(n, 0) + 1
+        unloaded: list[str] = []
+        loaded: list[str] = []
+        try:
+            missing = [n for n in names if not self.is_loaded(n)]
+            target = self.default_device(self.registry.get(names[0])) if names else self.device_info.torch_device
+
+            def idle_unrequired() -> list[_Entry]:
+                return sorted((e for e in self._entries.values()
+                               if e.evictable and e.spec.name not in keep and e.spec.name not in self._protected),
+                              key=lambda e: e.last_used)
+
+            if policy == "exclusive":
+                victims = [e for e in idle_unrequired() if e.spec.name not in self.settings.runtime.preload]
+            else:
+                victims = []
+                need = sum(self.registry.get(n).estimated_memory_gb() for n in missing)
+                cap = self.settings.runtime.max_loaded_models
+                free, total = self._probe(target)
+                used = total - free
+                n_loaded = len(self.loaded_models())
+                limit = total * self._threshold(target)
+                pool = idle_unrequired()  # least recently used first
+                while pool:
+                    deficit = used + need - limit if need else 0.0
+                    if deficit <= 0 and n_loaded + len(missing) <= cap:
+                        break
+
+                    def frees(e: _Entry) -> float:
+                        return self._entry_memory(e) if e.device == target else 0.0
+
+                    # Unload as little as possible: one model that frees enough on its own (the least recently used
+                    # such model), otherwise the least recently used one and look again.
+                    enough = [e for e in pool if frees(e) >= deficit] if deficit > 0 else pool
+                    victim = enough[0] if enough else pool[0]
+                    pool.remove(victim)
+                    victims.append(victim)
+                    used -= frees(victim)
+                    n_loaded -= 1
+            for e in victims:
+                async with e.lock:
+                    if e.model is None or e.active:
+                        continue
+                    log_event(logger, "model_evicted", model=e.key, device=e.device, status="not_required")
+                    notify("unloading", e.key)
+                    await self._unload_entry(e)
+                    unloaded.append(e.key)
+            for n in missing:
+                notify("loading", n)
+                try:
+                    await self.load_model(n)
+                    loaded.append(n)
+                except Exception as exc:
+                    skipped[n] = str(exc)
+        finally:
+            for n in keep:
+                self._protected[n] -= 1
+                if self._protected[n] <= 0:
+                    self._protected.pop(n, None)
+        return {"required": names, "loaded": loaded, "unloaded": unloaded,
+                "resident": [n for n in names if self.is_loaded(n)], "skipped": skipped, "policy": policy}
 
     # ------------------------------------------------------------------ internals
     def _key(self, name: str, device: str | None) -> str:
@@ -375,6 +494,7 @@ class ModelManager:
             e
             for e in self._entries.values()
             if e.key != exclude and e.evictable and (device is None or e.device == device)
+            and e.spec.name not in self._protected  # needed by an agent that is being prepared right now
         ]
         if not candidates:
             return False

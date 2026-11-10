@@ -77,6 +77,10 @@ def resolve_torch_dtype(dtype_name: str, device: str, bf16_supported: bool | Non
     import torch
 
     if dtype_name != "auto":
+        if dtype_name == "bfloat16" and device.startswith("cuda"):
+            supported = torch.cuda.is_bf16_supported() if bf16_supported is None else bf16_supported
+            if not supported:  # pre-Ampere NVIDIA GPUs: bf16 is emulated or unsupported
+                return torch.float16
         return getattr(torch, dtype_name)
     if device.startswith("cuda"):
         if bf16_supported is None:

@@ -14,6 +14,10 @@ from app.schemas.task import Plan, TaskRecord
 class TaskResult(BaseModel):
     task_id: str
     status: TaskStatus
+    prompt: str | None = None
+    image_path: str | None = None
+    priority: str | None = None
+    created_at: float | None = None
     answer: str | None = None
     result: dict[str, Any] | None = None
     plan: Plan | None = None
@@ -27,6 +31,10 @@ class TaskResult(BaseModel):
         return cls(
             task_id=record.task_id,
             status=record.status,
+            prompt=record.request.prompt,
+            image_path=record.request.image_path,
+            priority=record.request.priority.value,
+            created_at=record.created_at,
             answer=answer,
             result=record.result,
             plan=record.plan,
@@ -60,6 +68,11 @@ class ModelInfo(BaseModel):
     memory_gb: float | None = None
     last_used: float | None = None
     error: str | None = None
+    engine: str | None = None
+    format: str | None = None
+    architecture: str | None = None
+    quantization: str | None = None
+    est_vram_gb: float | None = None
 
 
 class HealthResponse(BaseModel):

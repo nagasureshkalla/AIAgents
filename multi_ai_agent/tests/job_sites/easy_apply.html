@@ -1,0 +1,61 @@
+<!doctype html><html><head><title>Python Developer | Initech | LinkedIn</title>
+<style>.hidden{display:none} .vh{position:absolute;opacity:0;width:1px;height:1px}</style></head><body>
+<main><h1>Python Developer</h1><p>Initech · Remote</p>
+<div class="jobs-description__content">Build Python FastAPI services. 3+ years of Python.</div>
+<button aria-label="Save Python Developer">Save</button>
+<button id="ea" aria-label="Easy Apply to Python Developer at Initech">Easy Apply</button></main>
+<div id="modal" role="dialog" class="hidden" aria-label="Apply to Initech">
+  <h2>Apply to Initech</h2><div id="step"></div>
+  <p role="alert" id="err" class="hidden"></p>
+  <button id="dismiss" aria-label="Dismiss">✕</button>
+  <button id="next">Next</button>
+</div>
+<script>
+const steps = [
+  `<h3>Contact info</h3>
+   <label for="em">Email address</label><select id="em" required><option>Select an option</option><option selected>ada@example.com</option></select>
+   <label for="cc">Phone country code</label><select id="cc" required><option>Select an option</option><option>India (+91)</option><option>United States (+1)</option></select>
+   <label for="ph">Mobile phone number</label><input id="ph" type="text" required>`,
+  `<h3>Resume</h3><label for="cv">Upload resume</label><input id="cv" type="file" class="vh" required>`,
+  `<h3>Additional questions</h3>
+   <label for="yrs">How many years of work experience do you have with Python?</label><input id="yrs" type="text" required>
+   <fieldset><legend>Are you legally authorized to work in the United States?</legend>
+     <input type="radio" name="auth" id="a1" value="Yes" class="vh" required><label for="a1">Yes</label>
+     <input type="radio" name="auth" id="a2" value="No" class="vh"><label for="a2">No</label></fieldset>
+   <label for="sal">Expected salary (USD)</label><input id="sal" type="text" required>`,
+  `<h3>Review your application</h3><p>Check your answers.</p>`,
+];
+let i = -1;
+const data = {};
+function show() {
+  document.getElementById('step').innerHTML = steps[i];
+  document.getElementById('next').textContent = i === steps.length - 1 ? 'Submit application' : i === steps.length - 2 ? 'Review' : 'Next';
+}
+document.getElementById('ea').onclick = () => { i = 0; document.getElementById('modal').classList.remove('hidden'); show(); };
+document.getElementById('next').onclick = async () => {
+  const err = document.getElementById('err');
+  const bad = [...document.querySelectorAll('#step [required]')].filter((el) => {
+    if (el.type === 'radio') return !document.querySelector(`input[name="${el.name}"]:checked`);
+    if (el.type === 'file') return !el.files.length;
+    if (el.tagName === 'SELECT') return el.selectedIndex === 0;
+    return !el.value.trim();
+  });
+  document.querySelectorAll('#step [aria-invalid]').forEach((el) => el.removeAttribute('aria-invalid'));
+  if (bad.length) { bad.forEach((el) => el.setAttribute('aria-invalid', 'true')); err.textContent = 'Please enter a valid answer'; err.classList.remove('hidden'); return; }
+  err.classList.add('hidden');
+  for (const el of document.querySelectorAll('#step input, #step select')) {
+    if (el.type === 'radio') { if (el.checked) data[el.name] = el.value; }
+    else if (el.type === 'file') data[el.id] = el.files[0].name;
+    else data[el.id] = el.tagName === 'SELECT' ? el.options[el.selectedIndex].text : el.value;
+  }
+  if (i === steps.length - 1) {
+    await fetch('/record', { method: 'POST', body: JSON.stringify({ site: 'linkedin', ...data }) });
+    document.getElementById('step').innerHTML = '<h3>Your application was sent to Initech</h3>';
+    document.getElementById('next').textContent = 'Done';
+    i = 99;
+    return;
+  }
+  if (i === 99) { document.getElementById('modal').classList.add('hidden'); return; }
+  i++; show();
+};
+</script></body></html>

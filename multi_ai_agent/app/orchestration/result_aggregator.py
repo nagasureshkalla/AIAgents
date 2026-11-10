@@ -30,6 +30,7 @@ class ResultAggregator(BaseAgent):
     description = "Synthesizes the outputs of all agents into the final answer."
     capabilities = ["synthesis"]
     default_model = "base"
+    prompts = {"synthesize": SYNTHESIS_SYSTEM}
 
     async def run(self, task: AgentTask) -> dict[str, Any]:  # pragma: no cover - use aggregate()
         raise NotImplementedError("Use aggregate()")
@@ -121,7 +122,7 @@ class ResultAggregator(BaseAgent):
         user = f"User request:\n{task.prompt}\n\nSpecialist findings (most important first):\n{findings}"
         if issues:
             user += "\n\nReviewer issues to address:\n" + "\n".join(f"- {i.get('message')}" for i in issues[:6])
-        out = await self.generate(synth_task, truncate(user, 12000), system=SYNTHESIS_SYSTEM)
+        out = await self.generate(synth_task, truncate(user, 12000), system=self.system_prompt("synthesize"))
         if not out.text.strip():
             raise ValueError("empty synthesis")
         return out.text

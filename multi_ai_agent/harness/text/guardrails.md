@@ -1,0 +1,7 @@
+- When the text agent runs in summarize mode, load the `summarize` skill.
+- When the text agent runs in classify mode, load the `classify` skill.
+- When the text agent runs in extract mode, load the `extract` skill.
+- When the text agent runs in format mode, load the `format` skill.
+- When the text agent runs in interpret_request mode, load the `interpret_request` skill.
+- When the text agent runs in compose mode, load the `compose` skill.
+- When the text agent runs in generate mode, load the `generate` skill.

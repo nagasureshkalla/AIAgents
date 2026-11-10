@@ -16,6 +16,8 @@ USER ─► MANAGER ─► PLANNER ─┬─► TEXT ──────┐
   * **Vision**: scene description and object listing.
   * **Multimodal**: visual questions and screenshot debugging.
   * **Reasoning**: step-by-step interpretation.
+  * **Research**: autonomous web research. It searches the internet, reads pages, cross-checks sources and answers with
+    verified citations, while every LLM call runs on your GPU (see [§13](#13-web-research-agent)).
 * **Validation agent** runs rule checks plus a short model review of the answer.
 * **Result aggregator** uses the *base* model to combine everything into one final answer.
 * **Resource scheduler** has a priority pool for each device. GPU inference is admitted one job at a time by default, and models are swapped by least-recent use, so VRAM doesn't run out (no OOM).
@@ -31,8 +33,10 @@ multi_ai_agent/
 │   ├── cli.py                  # run.py CLI + startup banner
 │   ├── api/                    # routes_tasks (tasks, chat, analyze, image, WS), routes_models, routes_agents, routes_health
 │   ├── agents/                 # base_agent, registry (auto-discovery), manager, planner, text, vision, multimodal, reasoning, validation
-│   ├── core/                   # config, device, logging, events, exceptions, container (dependency injection)
-│   ├── models/                 # model_registry, model_manager (lifecycle/LRU/VRAM), text_model, vision_model, base
+│   ├── core/                   # config, device, logging, events, exceptions, container, local_guard (no cloud AI)
+│   ├── models/                 # model_registry, model_manager (lifecycle/LRU/VRAM), text_model, vision_model, base,
+│   │                           # engines/ (llama_cpp, vllm), downloader (HF Hub downloads in a subprocess)
+│   ├── research/               # web research: search/, browser/, retrieval/, pipeline/, citations, memory
 │   ├── orchestration/          # orchestrator (DAG), scheduler (priority + VRAM aware), task_queue, result_aggregator
 │   ├── schemas/                # Pydantic: agent, task, message, result, common
 │   └── utils/                  # image validation, safe paths, performance monitor, text parsing
@@ -78,6 +82,7 @@ The default models are small and fast:
 
 | key | Hugging Face id | folder | approx. VRAM (bf16) |
 |---|---|---|---|
+| `research` | `Qwen/Qwen2.5-7B-Instruct` | `models/text/research` | ~16 GB |
 | `base` | `Qwen/Qwen2.5-1.5B-Instruct` | `models/text/base` | ~3.5 GB |
 | `fast_text` | `Qwen/Qwen2.5-0.5B-Instruct` | `models/text/fast_text` | ~1.2 GB |
 | `vision` | `HuggingFaceTB/SmolVLM-256M-Instruct` | `models/vision/fast_vision` | ~1 GB |
@@ -141,24 +146,72 @@ Status: READY
 
 Interactive docs are at `http://127.0.0.1:8000/docs` (Swagger) and `/redoc`.
 
+### Dashboard
+
+Open `http://127.0.0.1:8000/` (it redirects to `/ui/`) for the live control room:
+
+* **Agent pipeline (three.js)**: every agent is a 3D node. Running agents pulse amber with particles flowing in
+  from their upstream agents, and turn green or red when they finish. Drag to orbit, scroll to zoom.
+* **Running now**: each active agent, its step, and how long it has been running.
+* **Resources**: CPU, RAM, GPU utilization and VRAM with 90-second sparklines, plus task, agent and GPU-slot counters.
+* **Chat**: send a message (Enter sends, Shift+Enter adds a new line), optionally with an image (attach, drag and drop, or paste).
+  Each reply shows the agents' progress as live step chips, then the final answer as formatted Markdown. Running replies have a Stop button.
+* **Speech agent (voice)**: two ways to talk to the agents, both transcribed by local Whisper
+  (`speech.path`, default `models/speech/whisper` = `openai/whisper-large-v3-turbo`, ~1.6 GB VRAM, loaded on first use
+  and unloaded after 5 idle minutes).
+  * **Hey CC** (hands-free): switch on the **Hey CC** button and the page keeps listening. Voice activity detection
+    cuts what you say into utterances; only the ones that contain “Hey CC” are acted on (“Hey CC, what is the capital
+    of France?”). Say “Hey CC” alone and it answers “Yes?” and takes your next sentence (within 8 s) as the request.
+    Everything else is dropped after transcription and never stored. The setting is remembered per browser.
+  * **🎤** (push-to-talk): one message, sent when you stop talking.
+  * Replies to voice requests are read aloud by a local **Piper** voice (`speech.voice`, default
+    `models/speech/piper`, en_US-lessac-medium, CPU), with the browser's on-device voices as a fallback. The mic is
+    muted while it speaks. Click 🎤 or press Esc to stop; **🔊 Listen** replays any reply. Say “Hey CC, stop” to
+    cancel. Models: `python scripts/download_models.py --model openai/whisper-large-v3-turbo --type speech --name
+    whisper`; Piper voices come from huggingface.co/rhasspy/piper-voices (the `.onnx` plus its `.onnx.json`).
+* **Task detail**: hidden until you click **Details →** on a reply. It slides in with the plan grouped by parallel stage,
+  each agent's output, the answer and an event timeline. Close it with ✕, Esc, or by clicking outside it.
+* **Help (ⓘ next to API docs)**: three tabs. *Agents* shows what each agent does, its model, the phrases that select it,
+  and an example, with **Try example** and **Use only this agent** buttons. "Use only this agent" sends your chat messages
+  straight to that agent until you clear the chip. *Models* shows each model's state, size and which agents use it, and how to add one.
+  *Routing* shows the live intent → trigger phrases → agents table.
+* **Models / Agent performance**: load and unload models; calls, errors, average latency and tokens/sec per agent.
+
+The UI is plain HTML and ES modules in `app/ui/`, with three.js vendored in `app/ui/vendor/`. It needs no build
+step and makes no internet requests. Live updates come from `WS /ws/events`, which streams every task's events.
+
 ## 5. API reference
 
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/tasks` | Queue a text/image task → `{"task_id", "status": "queued"}` |
 | GET | `/api/tasks/{id}` | Status, plan, per-agent results, final answer |
+| POST | `/api/speech/transcribe` | Multipart `file` (webm/ogg/mp4/wav) → `{"text", "seconds"}` with local Whisper |
+| GET | `/api/speech` | Voice input status (enabled, installed, loaded) |
+| POST | `/api/speech/listen` | One utterance → `{"text", "woke", "command"}` (wake word “Hey CC”; `follow_up=true` after a bare wake word) |
+| POST | `/api/speech/speak` | `{"text"}` → `audio/wav` spoken by the local Piper voice |
 | GET | `/api/tasks/{id}/events` | Event history |
 | DELETE | `/api/tasks/{id}` | Cancel a queued/running task |
 | GET | `/api/tasks` | Recent tasks (`?status=completed`) |
 | POST | `/api/chat` | Send a message and wait for the answer |
 | POST | `/api/analyze` | Analyze `text` and/or `image_path` and wait for the result |
-| POST | `/api/image` | Multipart image upload + prompt (`wait=true` to block) |
+| POST | `/api/image` | Multipart image upload + prompt (`wait=true` to block, `agents=vision` to force agents) |
 | GET | `/api/models` | Configured/discovered models, installed?, lifecycle state, device |
 | POST | `/api/models/{name}/load` / `unload` | Manual model management (`?device=cpu`) |
 | GET | `/api/agents` | Agents and declared capabilities |
+| GET | `/api/routing` | Intents, their trigger phrases, and the agents each one runs |
 | GET | `/api/health` | Device, GPU, VRAM/RAM, active agents, running tasks |
 | GET | `/api/metrics` | Latency, tokens/sec, CPU/RAM/GPU/VRAM per agent and model |
+| POST | `/api/research` | Start web research `{"query", "depth": "quick\|normal\|deep"}` → `{"research_id", "stream"}` |
+| GET | `/api/research/{id}` | Research status, cited answer, confidence, verified claims, sources |
+| GET | `/api/research/{id}/sources` | Every page visited (cited, read, failed) and the extracted evidence |
+| GET | `/api/stream/{id}` | Server-Sent Events: `status`, `source`, `answer`, `error` |
+| GET | `/api/gpu` | NVIDIA GPU(s), CUDA version, VRAM (driver + torch allocator), utilization |
+| GET | `/api/status` | Local-only inference status: AI mode, model, GPU, web mode |
+| POST | `/api/models/load` / `unload` | Body `{"name": "..."}` (same as the path-based routes) |
+| POST | `/api/models/download` | Download `{"hf_id", "type"}` from the HF Hub into `models/` (progress: `GET /api/models/downloads`) |
 | WS | `/ws/tasks/{id}` | Real-time events |
+| WS | `/ws/events` | Real-time events for all tasks (used by the dashboard) |
 
 Priorities are `CRITICAL`, `HIGH`, `NORMAL` and `LOW`. They order both the task queue and GPU admission.
 
@@ -352,3 +405,188 @@ To expose the server on your network, set `server.host: 0.0.0.0` **and** `server
 | Answers are low quality | Use larger models for `base` (e.g. Qwen2.5-3B/7B-Instruct) if VRAM allows; set `use_llm_routing: true` |
 | Logs as JSON | `server.json_logs: true` or `MAA_JSON_LOGS=true` |
 | Benchmark | `python scripts/benchmark.py --runs 5 --image ./data/input/image.png` |
+
+## 13. Web research agent
+
+The internet supplies the information and your NVIDIA GPU supplies the intelligence. The research agent never
+calls a cloud LLM: the only traffic leaving the machine is web search queries and page downloads.
+
+```
+question ─► PLAN (fast model) ─► SEARCH (DuckDuckGo) ─► READ (httpx / Playwright) ─► EXTRACT evidence + quotes
+              ▲                                                                          │
+              └──── not enough? new queries (fast model) ◄── ANALYZE ◄───────────────────┘
+                                                              │ enough / budget used
+                                                              ▼
+                                   VERIFY across sources (SUPPORTED / CONFLICTING / INSUFFICIENT)
+                                                              ▼
+                                   ANSWER (reasoning model) + code-built Confidence and Sources
+```
+
+**How to use it**
+
+* In the dashboard, switch on **🌐 Web** next to the message box and pick a depth (quick, normal or deep). Questions
+  about recent events ("latest …", "news …", "search the web …") are routed to the research agent automatically.
+* Through the API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/research -H 'Content-Type: application/json' \
+  -d '{"query": "What are the latest open source AI video models?", "depth": "deep"}'
+curl -N http://127.0.0.1:8000/api/stream/<research_id>          # live status / source / answer events
+curl http://127.0.0.1:8000/api/research/<research_id>/sources   # every visited page + evidence
+```
+
+**What every answer contains:** `## Answer`, `## Key Findings` (each finding with `[n]` citations), a
+`## Disagreements Between Sources` section when sources conflict, `## Confidence` (High, Medium or Low, computed from the
+verification results), and `## Sources`.
+
+**Citation guarantees**
+
+* A source gets a number only after the browser has fetched it and extracted readable text.
+* Each extracted claim must come with a quote that actually appears on the page; claims that can't be traced to a quote are dropped.
+* Any `[n]` the model writes that doesn't point to a visited source is removed, and so is any URL the model writes.
+  The Sources list is built from the fetch records, never from model output.
+
+**Safety while browsing:** the agent opens http(s) only and refuses private, loopback and link-local addresses, also when a redirect
+points there. It honours `robots.txt`, caps page size (`MAX_PAGE_SIZE_MB`) and times out slow pages (`REQUEST_TIMEOUT`).
+CAPTCHAs, login walls and paywalls are reported as *blocked* and never bypassed.
+
+**Models.** `research.fast_model` (default `fast_text`) writes search queries and checks for gaps. `research.reasoning_model`
+(default `research`, Qwen2.5-7B-Instruct) extracts evidence, verifies claims and writes the answer. If only one
+model is installed it does everything, through `model_fallbacks`. To point at any folder you download:
+`MODEL_PATH=./models/text/Qwen3-8B` and `FAST_MODEL_PATH=./models/text/Qwen3-4B`. A folder that contains a `.gguf` file
+uses the llama.cpp engine; set `engine: vllm` on a model to use vLLM. Both engines are optional installs, see
+`requirements-cuda.txt`.
+
+**Modes**
+
+| Mode | Setting | LLM | Web |
+|---|---|---|---|
+| LOCAL AI + WEB | `WEB_ENABLED=true` (default) | NVIDIA GPU | search + public pages |
+| LOCAL AI + OFFLINE | `WEB_ENABLED=false` | NVIDIA GPU | disabled; answers come from the model with an explicit notice and no citations |
+
+**GPU requirement.** Research inference needs CUDA by default. Without it the agent fails with *"NVIDIA CUDA GPU was not
+detected. Local AI inference cannot start."* For debugging only, `research.allow_cpu: true` permits CPU. `CUDA_DEVICE=N`
+pins a GPU, and `CUDA_VISIBLE_DEVICES` is respected. `GPU_MODE=multi` is reserved for future multi-GPU support.
+
+**Privacy.** `AI_MODE` must be `local`, otherwise the server refuses to start. At startup, cloud LLM credentials
+(`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, …) are removed from the process environment and the server
+logs *"Cloud AI providers are disabled. All inference is running locally."* `GET /api/status` reports the same.
+
+**Optional extras:** `pip install -r requirements-browser.txt && playwright install chromium` enables headless
+Chromium for JavaScript-heavy pages (used automatically when a static fetch returns almost no text). If you run
+your own SearXNG instance, set `SEARCH_PROVIDER=searxng` and `SEARXNG_URL=...`.
+
+
+---
+
+## 14. Control Panel agent (desktop control)
+
+The **Control Panel** agent (`control_panel`) operates the applications on your computer. It opens apps, clicks,
+types and browses, and verifies every step on screen. It delegates the screen work to the sibling
+[`computer_ai_agent`](../computer_ai_agent/README.md) service, which has its own venv and a live-screen UI at
+http://127.0.0.1:8765. The model lifecycle stays in this pipeline.
+
+```text
+"Open Chrome, go to Google, search for NVIDIA RTX 3090 and open the first result"
+  manager  → intent computer_control → agents [control_panel] → requires model control_panel
+           → unloads idle models that are not needed (to make room) → loads control_panel (Ollama qwen3.6:27b)
+  planner  → one step: control_panel
+  control_panel → holds its model while working → starts computer_ai_agent if needed → streams each action,
+                  asks you before destructive actions → returns the verified result
+```
+
+**Routing.** These go to the Control Panel:
+- "open / launch / close / switch to <app>…"
+- "start/run/use <app>"
+- click / scroll / drag
+- "on my computer / desktop"
+- "<do something> in Chrome / VS Code / Terminal / Files…"
+
+These checks run before web research, so *"Open Chrome and search Google for X"* acts on the desktop. Questions
+and writing, such as *"Explain memory leaks in Chrome"* or *"Write a LinkedIn post"*, are not routed there.
+
+**Model.** Configured in `config.yaml` as an `engine: ollama` model, so it's managed like the Hugging Face models:
+```yaml
+models:
+  control_panel: { engine: ollama, ollama_model: qwen3.6:27b, type: multimodal, est_size_gb: 18,
+                   model_kwargs: { num_ctx: 16384 } }
+agents:
+  control_panel: { model: control_panel, timeout_seconds: 1800 }
+```
+- Run `ollama pull qwen3.6:27b` first.
+- **Loading** asks Ollama to keep the model in VRAM indefinitely (`keep_alive=-1m`), so this ModelManager, not
+  Ollama's idle timer, decides when it leaves.
+- **Unloading** uses `keep_alive=0` and waits until the VRAM is actually free.
+- The service is started with the same model and `num_ctx`, so Ollama never reloads behind the manager's back.
+- `inference.ollama_url` must point at this computer; a remote URL is refused at startup.
+
+**Requirement-driven loading.** After choosing agents, the manager asks each one for its `required_models()` and
+calls `ModelManager.prepare()`:
+1. Idle models that aren't required are unloaded.
+   - `runtime.model_policy: on_demand` (the default) unloads only until the required models fit. It picks a single
+     model that frees enough room when there is one; otherwise it goes least-recently-used first.
+   - `exclusive` always unloads every model that isn't required.
+2. Required models that aren't resident are loaded, protected from evicting each other.
+3. Models running inference for another task are never unloaded.
+
+The decision reports `models: {required, loaded, unloaded, resident, skipped}`, and the chat shows
+"Unloading model … · Loading model …" while it happens. Verified on an RTX 3090:
+
+| Task | Before | Manager did | After |
+|---|---|---|---|
+| *Open Calculator and calculate 23 * 19* → **437** | research 15 GB + fast_text | unloaded research (only), loaded control_panel | fast_text + control_panel (19.6 GB) |
+| *What is the latest stable Python release?* | fast_text + control_panel | unloaded control_panel (Ollama) + fast_text, loaded research | research (16.2 GB) |
+
+**Chat UI.**
+- While the agent works, the turn shows its live steps (▶ / ✓ / ✗ / ↻).
+- **Approve / Deny** prompts appear inline, with a screenshot (answered through `POST /api/control-panel/requests/{id}`).
+- A link opens the Control Panel's live screen.
+- After the answer, a collapsible list shows every desktop action.
+
+**Service settings** (`control_panel:` section):
+- `url`
+- `autostart` (on first use)
+- `display` (e.g. `":7"` for a nested Xephyr test screen; also `MAA_CONTROL_PANEL_DISPLAY`)
+- `project_dir`
+- `require_confirmation`
+
+When this server shuts down, it unloads the model and stops a service it started.
+
+**Safety.** A failed desktop task is never retried automatically (`error_type: control_failed`), because repeating
+GUI actions isn't safe. Cancelling the pipeline task stops the desktop task.
+
+Tests: `pytest -q tests/test_control_panel.py`. They cover routing, prepare() eviction choices, the Ollama engine
+against a fake Ollama server, and the agent end to end with a scripted service (held model, approval forwarding, no
+retry, cancellation).
+
+## 15. Job Agent: LinkedIn and website applications
+
+"Apply to the top 3 Python developer jobs" searches the job boards (email applications through Auto-Apply AI)
+**and LinkedIn**, scores everything against your resume with the local model, then applies:
+
+1. **Email**: postings that publish a contact address. You approve each letter (Gmail must be connected).
+2. **LinkedIn Easy Apply**: in a visible Chrome window with its own profile (`job_agent.browser_profile_dir`).
+   The first time, it asks you to log in to LinkedIn in that window; the agent never handles your LinkedIn password.
+3. **Company websites**: LinkedIn's external **Apply** and job-board links open the employer's site.
+
+The browser engine (`app/agents/job_browser.py`) reads the page's HTML at every step: form controls with their
+labels, types, options and required/invalid state, the buttons, and signals (login wall, CAPTCHA, confirmation). It
+fills contact facts and the resume by rule, reuses your saved answers, asks the local model for screening questions
+(it answers only from your resume facts and says "null" otherwise), and asks you for the rest in the chat. Your
+answers are saved in `job_agent.answers_file` and reused. Then it clicks Next / Review until Submit.
+
+* **Before Submit** it always stops and shows every answer it entered plus a screenshot. Nothing is submitted
+  without your **Submit**, and every submitted application is recorded in Auto-Apply AI, with the same duplicate
+  and daily-limit checks as email applications.
+* **Sign-in / sign-up**: when a site needs an account, it asks first, then creates one with your email and a
+  generated password saved in `job_agent.accounts_file` (mode 600, on this computer only). Verification codes are
+  asked in the chat; for a verification link you click it and press Continue. Passwords are typed by code and never
+  shown to the model.
+* **Never automated**: CAPTCHAs (you solve them in the window), government IDs, bank/card numbers and dates of birth
+  (left empty, or you type them yourself). EEO questions get "decline to self-identify". Optional cookies are declined.
+* Limits: `job_agent.max_browser_applications` per request (default 5) and the Auto-Apply daily limit.
+* LinkedIn's terms do not allow automated tools, and the automated Chrome identifies itself as automated, so your
+  LinkedIn account may be restricted. Keep requests small. Turn LinkedIn off with `job_agent.linkedin: false`,
+  or all browser applying with `job_agent.browser_apply: false`.
+
+Needs Playwright in the venv (`pip install -r requirements-browser.txt`) and Google Chrome (`browser_channel: chrome`).

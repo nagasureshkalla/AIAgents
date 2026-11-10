@@ -1,0 +1,13 @@
+{
+  "application": "Blender",
+  "description": "3D creation suite. Its UI is drawn with OpenGL, so elements come from OCR and the screenshot.",
+  "tips": [
+    "Keyboard shortcuts act on the area under the mouse: move the mouse over the 3D viewport (center of the window) first.",
+    "Add a cube: mouse over the viewport, hotkey shift+a, then click Mesh, then Cube.",
+    "The default startup scene already contains a cube; a splash screen may need a click outside it or Escape.",
+    "Delete the selected object: x then click Delete (needs approval).",
+    "Save: ctrl+s."
+  ],
+  "shortcuts": {"shift+a": "add menu", "g": "grab/move", "r": "rotate", "s": "scale", "tab": "edit mode",
+                "ctrl+s": "save", "f12": "render", "numpad0": "camera view"}
+}

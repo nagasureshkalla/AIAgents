@@ -17,3 +17,11 @@ accelerate>=0.33
 huggingface_hub>=0.24
 safetensors>=0.4
 Pillow>=10.3
+
+# Web research agent (search + page extraction). Web access only; no AI inference service is used.
+beautifulsoup4>=4.12
+lxml>=5.0
+ddgs>=9.0
+
+# Speech agent: local Piper voice for spoken replies (speech-to-text uses transformers + system ffmpeg).
+piper-tts>=1.8

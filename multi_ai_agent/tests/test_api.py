@@ -73,6 +73,15 @@ def test_docs_available(client):
     assert "/api/image" in schema["paths"]
 
 
+def test_dashboard_served(client):
+    res = client.get("/", follow_redirects=False)
+    assert res.status_code in (302, 307) and res.headers["location"] == "/ui/"
+    page = client.get("/ui/")
+    assert page.status_code == 200 and "Agent Control Room" in page.text
+    assert client.get("/ui/vendor/three.module.min.js").status_code == 200
+    assert client.get("/api").json()["ui"] == "/ui/"
+
+
 # ---------------------------------------------------------------- tasks
 def test_text_task_lifecycle(client):
     res = client.post("/api/tasks", json={"prompt": "Summarize this document: tests are useful.", "priority": "high"})
@@ -85,6 +94,8 @@ def test_text_task_lifecycle(client):
     assert body["answer"]
     assert body["plan"]["intent"] == "summarize"
     assert body["agent_results"]["summary"]["agent"] == "text"
+    assert body["prompt"].startswith("Summarize this document")
+    assert body["priority"] == "HIGH"
 
 
 def test_chat_waits_for_answer(client):
@@ -178,3 +189,37 @@ def test_websocket_unknown_task(client):
     with client.websocket_connect("/ws/tasks/task_missing") as ws:
         msg = ws.receive_json()
         assert msg["event"] == "error"
+
+
+def test_global_event_stream(client):
+    with client.websocket_connect("/ws/events") as ws:
+        task_id = client.post("/api/tasks", json={"prompt": "Summarize this: one stream for every task."}).json()["task_id"]
+        events: list[dict] = []
+        while True:
+            msg = ws.receive_json()
+            events.append(msg)
+            if msg["event"] in ("task_completed", "task_failed", "task_cancelled"):
+                break
+    assert {e["task_id"] for e in events} == {task_id}
+    names = [e["event"] for e in events]
+    assert names[0] == "task_queued" and "plan_created" in names and names[-1] == "task_completed"
+
+
+def test_routing_describes_intents(client):
+    routes = {r["intent"]: r for r in client.get("/api/routing").json()}
+    assert "summarize" in routes["summarize"]["phrases"]
+    assert routes["summarize"]["agents"][0] == "text"
+    assert routes["image_analysis"]["input"] == "image" and "vision" in routes["image_analysis"]["agents"]
+    assert routes["generate"]["phrases"] == []
+
+
+def test_image_upload_can_force_agents(client):
+    res = client.post(
+        "/api/image",
+        files={"file": ("photo.png", png_bytes(), "image/png")},
+        data={"prompt": "Describe this image.", "agents": "vision"},
+    )
+    assert res.status_code == 202, res.text
+    body = wait_for(client, res.json()["task_id"])
+    assert body["status"] == "completed", body["error"]
+    assert {s["agent"] for s in body["plan"]["steps"]} <= {"vision", "validation"}

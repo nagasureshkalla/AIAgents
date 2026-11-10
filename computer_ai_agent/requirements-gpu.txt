@@ -1,0 +1,7 @@
+# Optional extras.
+# 1) OCR on the NVIDIA GPU (replaces the CPU onnxruntime pulled in by rapidocr):
+#      pip uninstall -y onnxruntime && pip install onnxruntime-gpu
+# 2) MODEL_PROVIDER=transformers (load Hugging Face weights in-process instead of using Ollama):
+torch>=2.3
+transformers>=4.45
+accelerate>=0.30

@@ -1,0 +1,5 @@
+# Optional: headless Chromium for JavaScript-heavy pages in the research agent, and the Job Agent's browser
+# applications (LinkedIn Easy Apply, company websites; it drives your installed Google Chrome).
+#   pip install -r requirements-browser.txt && playwright install chromium
+# Without it the agent reads pages with httpx + BeautifulSoup only.
+playwright>=1.45

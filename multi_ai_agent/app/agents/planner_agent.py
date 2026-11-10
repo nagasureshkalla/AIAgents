@@ -24,6 +24,27 @@ class StepTemplate:
 V = "validation"
 # Steps without a dependency between them run concurrently. Validation lists the candidate answer first.
 PLAN_TEMPLATES: dict[str, list[StepTemplate]] = {
+    "web_test": [
+        # One step: the Web Tester explores, acts and checks in the browser, then reports with repro evidence.
+        StepTemplate("webtest", "web_testing", "Test the website in a browser and report issues with evidence",
+                     mode="explore"),
+    ],
+    "big_model": [
+        # One step: the AirLLM agent streams the 120B model through the GPU and answers directly.
+        StepTemplate("bigmodel", "big_model_generation", "Answer with the large AirLLM model", mode="answer"),
+    ],
+    "job_search": [
+        # One step: the Job Agent searches, scores, drafts and asks for approval before each application.
+        StepTemplate("jobs", "job_search", "Find matching jobs and prepare applications for approval", mode="jobs"),
+    ],
+    "computer_control": [
+        # One step: the Control Panel plans, acts and verifies every GUI step on screen itself.
+        StepTemplate("control", "computer_control", "Operate the desktop applications to complete the request",
+                     mode="control"),
+    ],
+    "research": [
+        StepTemplate("research", "web_research", "Research the question on the web and answer with citations", mode="research"),
+    ],
     "image_analysis": [
         StepTemplate("see", "image_analysis", "Analyze the image: describe the scene and list visible objects", mode="describe"),
         StepTemplate("intent", "request_interpretation", "Interpret what the user wants to know", mode="interpret_request", optional=True),

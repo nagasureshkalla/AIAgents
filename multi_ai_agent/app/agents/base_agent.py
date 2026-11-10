@@ -23,7 +23,10 @@ if TYPE_CHECKING:
     from PIL.Image import Image
 
     from app.agents.registry import AgentRegistry
+    from app.core.events import EventBus
+    from app.core.harness import HarnessStore
     from app.models.model_manager import ModelManager
+    from app.models.speech_model import TextToSpeech
     from app.orchestration.scheduler import ResourceScheduler
     from app.utils.performance import PerformanceMonitor
 
@@ -42,6 +45,9 @@ class AgentContext:
     models: "ModelManager"
     monitor: "PerformanceMonitor"
     registry: "AgentRegistry | None" = None
+    events: "EventBus | None" = None  # lets long-running agents stream progress to the UI
+    harness: "HarnessStore | None" = None  # per-agent prompt harnesses (app/core/harness.py)
+    tts: "TextToSpeech | None" = None  # local Piper voice (the speech agent)
 
 
 class BaseAgent(ABC):
@@ -51,6 +57,7 @@ class BaseAgent(ABC):
     capabilities: ClassVar[list[str]] = []
     keywords: ClassVar[list[str]] = []  # prompt keywords that make the manager consider this agent
     default_model: ClassVar[str | None] = None
+    prompts: ClassVar[dict[str, str]] = {}  # mode -> built-in system prompt; seeds the agent's harness
 
     def __init__(self, ctx: AgentContext) -> None:
         self.ctx = ctx
@@ -63,6 +70,10 @@ class BaseAgent(ABC):
     @property
     def model_key(self) -> str | None:
         return self.config.model or self.default_model
+
+    def required_models(self) -> list[str]:
+        """Models this agent will run on; the manager makes them resident before the task starts."""
+        return [self.model_key] if self.model_key else []
 
     def info(self) -> AgentInfo:
         return AgentInfo(
@@ -138,6 +149,13 @@ class BaseAgent(ABC):
         )
 
     # ------------------------------------------------------------------ helpers
+    def system_prompt(self, mode: str, default: str | None = None) -> str:
+        """The system prompt for `mode`: the built-in one (or the harness skill replacing it) plus harness text."""
+        base = self.prompts.get(mode, "") if default is None else default
+        if self.ctx.harness is None:
+            return base
+        return self.ctx.harness.get(self.name).compose(base, mode)
+
     async def generate(
         self,
         task: AgentTask,
@@ -215,6 +233,17 @@ class BaseAgent(ABC):
         if used is not None and output.model not in used:
             used.append(output.model)
         return output
+
+    def progress(self, task: AgentTask, message: str, **data: Any) -> None:
+        """Publish a short, user-facing status line (never model reasoning) for the task's live stream."""
+        from app.core.events import EventType
+
+        if self.ctx.events is not None:
+            self.ctx.events.emit(task.task_id, EventType.AGENT_PROGRESS, self.name, step_id=task.step_id, message=message, **data)
+
+    def emit(self, task: AgentTask, event: Any, **data: Any) -> None:
+        if self.ctx.events is not None:
+            self.ctx.events.emit(task.task_id, event, self.name, step_id=task.step_id, **data)
 
     @staticmethod
     def render_upstream(task: AgentTask, limit: int = 6000) -> str:

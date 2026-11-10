@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import time
 from collections import Counter
 from pathlib import Path
@@ -42,9 +44,50 @@ class FakeGPU:
         return self.total_gb - used, self.total_gb
 
 
+def research_respond(system: str, user: str) -> str | None:
+    """Deterministic stand-ins for the research pipeline's prompts (system prompts are lower-cased)."""
+    if "planning module of a web research assistant" in system:
+        return json.dumps({
+            "intent": "find the fact",
+            "answer_type": "fact",
+            "time_sensitive": True,
+            "sub_questions": ["What is the fact?"],
+            "queries": ["q1"],
+        })
+    if "whether collected research evidence is enough" in system:
+        match = re.search(r"Evidence so far \((\d+) sources\)", user)
+        n = int(match.group(1)) if match else 0
+        if n < 2 and "follow up" not in user:
+            return json.dumps({"enough": False, "missing": ["second source"], "queries": ["follow up"]})
+        return json.dumps({"enough": True, "missing": [], "queries": []})
+    if "you extract evidence from one web source" in system:
+        text = user.split("Source text:", 1)[-1].strip()
+        sentence = re.split(r"(?<=[.!?])\s", text.replace("\n", " "))[0].strip()
+        return json.dumps({"claims": [
+            {"claim": sentence, "quote": sentence},
+            {"claim": "The moon is made of cheese.", "quote": "made of green cheese entirely"},  # untraceable
+        ]})
+    if "fact-checking module" in system:
+        ids = sorted({int(x) for x in re.findall(r"Source \[(\d+)\]", user)})
+        if "CONFLICT" in user and len(ids) >= 2:
+            return json.dumps({"claims": [{"claim": "The value", "status": "CONFLICTING", "sources": ids[:2], "note": "sources report different values"}]})
+        return json.dumps({"claims": [{"claim": "The fact", "status": "SUPPORTED", "sources": ids + [99]}]})
+    if "you write the final answer of a web research assistant" in system:
+        return (
+            "## Answer\n\nThe fact is established [1]. See https://evil.example/fake for more [99].\n\n"
+            "## Key Findings\n\n- Finding one [1][2]\n- Finding two [7]\n\n## Sources\n\n[1] Invented https://made.up"
+        )
+    if "running fully offline" in system:
+        return "Offline answer from memory [3] (see https://made.up/page)."
+    return None
+
+
 def respond(request: GenerationRequest) -> str:
     system = " ".join(m["content"] for m in request.messages if m["role"] == "system").lower()
     user = next((m["content"] for m in reversed(request.messages) if m["role"] == "user"), "")
+    research = research_respond(system, user)
+    if research is not None:
+        return research
     if "strict reviewer" in system:
         return '{"valid": true, "issues": []}'
     if '"intent"' in system:
@@ -150,6 +193,7 @@ def make_settings(
             install_fake_model(path)
         models[key] = {"path": str(path), "type": model_type, "est_size_gb": est_size_gb, "hf_id": f"fake/{key}"}
     data: dict[str, Any] = {
+        "harness": {"root": str(tmp_path / "harness")},
         "models": models,
         "agents": {
             "manager": {"model": "fast_text"},

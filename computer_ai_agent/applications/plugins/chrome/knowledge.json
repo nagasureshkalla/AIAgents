@@ -1,0 +1,18 @@
+{
+  "application": "Google Chrome",
+  "description": "Chrome web browser. The address bar (omnibox) accepts URLs and search terms.",
+  "tips": [
+    "To open a website: hotkey ctrl+l (focuses and selects the address bar), type_text the URL followed by \\n.",
+    "To search Google from anywhere: ctrl+l, then type the search terms followed by \\n.",
+    "On a Google results page, organic results are links with a heading (h3) title; skip items labelled Sponsored/Ad and the 'People also ask' box.",
+    "The first result is the first non-sponsored result title link below the search box.",
+    "After clicking a link, wait until the page title changes before judging the result.",
+    "If a cookie or sign-in popup covers the page, dismiss it (Reject all / No thanks / Escape) before continuing.",
+    "Never sign in or type passwords; ask the user instead."
+  ],
+  "shortcuts": {
+    "ctrl+l": "focus address bar", "ctrl+t": "new tab", "ctrl+w": "close tab", "ctrl+tab": "next tab",
+    "ctrl+shift+tab": "previous tab", "alt+left": "back", "alt+right": "forward", "f5": "reload",
+    "ctrl+f": "find in page", "ctrl+d": "bookmark", "ctrl+j": "downloads", "ctrl+h": "history", "ctrl+n": "new window"
+  }
+}

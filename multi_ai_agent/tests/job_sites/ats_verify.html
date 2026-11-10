@@ -1,0 +1,12 @@
+<!doctype html><html><head><title>Verify your email - Globex Careers</title></head><body>
+<h1>Verify your email</h1><p>Enter the verification code we sent to your email.</p>
+<label for="c">Verification code</label><input id="c" type="text">
+<p role="alert" id="err"></p>
+<button id="v">Verify</button>
+<script>
+document.getElementById('v').onclick = () => {
+  if (c.value !== '123456') { err.textContent = 'Invalid code'; return; }
+  const a = JSON.parse(localStorage.getItem('acct')); a.verified = true; localStorage.setItem('acct', JSON.stringify(a));
+  location.href = '/ats/login?job=222';
+};
+</script></body></html>

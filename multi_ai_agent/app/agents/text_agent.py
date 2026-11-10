@@ -47,10 +47,11 @@ class TextAgent(BaseAgent):
         "text_understanding",
     ]
     default_model = "fast_text"
+    prompts = SYSTEM_PROMPTS
 
     async def run(self, task: AgentTask) -> dict[str, Any]:
         mode = task.mode or "generate"
-        system = SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["generate"])
+        system = self.system_prompt(mode if mode in SYSTEM_PROMPTS else "generate")
         context = self.render_upstream(task)
 
         if mode == "interpret_request" and task.image_path:
